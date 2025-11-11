@@ -6,6 +6,9 @@ MAX_HORAS = 23
 
 alarma_activa = None
 continuar_contador = False
+segundos_restantes = 0
+mensaje_actual = ""
+pausada = False
 
 # -------------------- UTILIDADES --------------------
 
@@ -35,16 +38,21 @@ def dec(entry, limite):
     entry.delete(0, tk.END)
     entry.insert(0, f"{val:02d}")
 
-# -------------------- LÓGICA ALARMA --------------------
+# -------------------- LÓGICA DE LA ALARMA --------------------
 
 def mostrar_mensaje(mensaje):
-    global alarma_activa, continuar_contador
+    """Se llama cuando el backend dispara la alarma (tiempo cumplido)."""
+    global alarma_activa, continuar_contador, segundos_restantes, pausada
+
     alarma_activa = None
     continuar_contador = False
+    pausada = False
+    segundos_restantes = 0
 
     label_estado.config(text="Sin alarma activa", fg="#555555")
     label_digital.config(text="--:--:--")
     btn_activar.config(state="normal")
+    btn_pausa_play.config(state="disabled", text="⏸️", bg="#3949ab")
 
     messagebox.showinfo("Alarma", mensaje)
 
@@ -52,7 +60,7 @@ def callback_backend(msg):
     root.after(0, mostrar_mensaje, msg)
 
 def activar_alarma():
-    global alarma_activa, continuar_contador
+    global alarma_activa, continuar_contador, segundos_restantes, mensaje_actual, pausada
 
     h = normalizar_valor(entry_horas, MAX_HORAS)
     m = normalizar_valor(entry_min, 59)
@@ -66,41 +74,77 @@ def activar_alarma():
     mensaje = entry_mensaje.get().strip()
     if not mensaje:
         mensaje = "¡TIEMPO CUMPLIDO! 🔔"
+    mensaje_actual = mensaje
+
+    segundos_restantes = total_segundos
+    continuar_contador = True
+    pausada = False
 
     btn_activar.config(state="disabled")
+    btn_pausa_play.config(state="normal", text="⏸️", bg="#3949ab")
     label_estado.config(
-        text=f"Alarma en {h:02d}:{m:02d}:{s:02d}",
+        text=f"Alarma programada: {h:02d}:{m:02d}:{s:02d}",
         fg="#2e7d32"
     )
-
-    continuar_contador = True
     label_digital.config(text=f"{h:02d}:{m:02d}:{s:02d}")
 
-    alarma_activa = iniciar_alarma(total_segundos, mensaje, callback_backend)
-    cuenta_regresiva(total_segundos)
+    if alarma_activa is not None:
+        alarma_activa.cancel()
+    alarma_activa = iniciar_alarma(total_segundos, mensaje_actual, callback_backend)
 
-def cuenta_regresiva(restante):
-    global continuar_contador
+    cuenta_regresiva()
+
+def cuenta_regresiva():
+    global segundos_restantes, continuar_contador
+
     if not continuar_contador:
         return
 
-    if restante >= 0:
-        h = restante // 3600
-        m = (restante % 3600) // 60
-        s = restante % 60
-        texto = f"{h:02d}:{m:02d}:{s:02d}"
+    if segundos_restantes >= 0:
+        h = segundos_restantes // 3600
+        m = (segundos_restantes % 3600) // 60
+        s = segundos_restantes % 60
+        label_digital.config(text=f"{h:02d}:{m:02d}:{s:02d}")
 
-        label_digital.config(text=texto)
+        if segundos_restantes > 0:
+            segundos_restantes -= 1
+            root.after(1000, cuenta_regresiva)
 
-        if restante > 0:
-            root.after(1000, cuenta_regresiva, restante - 1)
-        # al llegar a 0, el backend llama mostrar_mensaje()
+def alternar_pausa_play():
+    """Pausa o reanuda con un solo botón (⏸️ / ▶️)."""
+    global pausada, continuar_contador, alarma_activa
 
-# -------------------- INTERFAZ PRINCIPAL (480x600) --------------------
+    # Si no hay alarma activa y no está pausada, no hay nada que hacer
+    if alarma_activa is None and not pausada:
+        return
+
+    if not pausada:
+        # PAUSAR
+        pausada = True
+        continuar_contador = False
+        if alarma_activa is not None:
+            alarma_activa.cancel()
+            alarma_activa = None
+        btn_pausa_play.config(text="▶️", bg="#ff9800")
+        label_estado.config(text="Alarma en pausa", fg="#ff9800")
+    else:
+        # REANUDAR
+        pausada = False
+        continuar_contador = True
+        btn_pausa_play.config(text="⏸️", bg="#3949ab")
+        label_estado.config(text="Alarma reanudada", fg="#2e7d32")
+
+        if segundos_restantes > 0:
+            alarma_nueva = iniciar_alarma(segundos_restantes, mensaje_actual, callback_backend)
+            globals()["alarma_activa"] = alarma_nueva
+
+        cuenta_regresiva()
+
+# -------------------- INTERFAZ PRINCIPAL (480x700) --------------------
 
 root = tk.Tk()
 root.title("Alarma con Notificación")
-root.geometry("480x600")
+root.geometry("480x700")
 root.resizable(False, False)
 
 BG = "#f4f4f7"
@@ -110,21 +154,22 @@ TEXT = "#333333"
 
 root.configure(bg=BG)
 
+# Frame principal con más altura para aire
 frame = tk.Frame(root, bg=CARD)
-frame.place(relx=0.5, rely=0.0, anchor="n", width=440, height=580, y=10)
+frame.place(relx=0.5, rely=0.0, anchor="n", width=440, height=660, y=15)
 
+# Título
 titulo = tk.Label(
     frame,
     text="Alarma con notificación",
     bg=CARD,
     fg=PRIMARY,
-    font=("Segoe UI", 20, "bold")
+    font=("Segoe UI", 22, "bold")
 )
-titulo.pack(pady=(10, 20))
+titulo.pack(pady=(10, 25))
 
 # --- Validación: máx 2 caracteres numéricos ---
 def validar_dos_digitos(nuevo_valor):
-    # nuevo_valor = texto resultante si se permite la tecla
     if nuevo_valor == "":
         return True
     if len(nuevo_valor) > 2:
@@ -135,11 +180,11 @@ vcmd = (root.register(validar_dos_digitos), "%P")
 
 # ----- Selector H / M / S -----
 selector = tk.Frame(frame, bg=CARD)
-selector.pack(pady=(0, 25))
+selector.pack(pady=(0, 35))
 
 def crear_columna_editable(parent, etiqueta, max_val, vcmd):
     col = tk.Frame(parent, bg=CARD)
-    col.pack(side="left", padx=20)
+    col.pack(side="left", padx=24)
 
     btn_up = tk.Button(
         col,
@@ -151,7 +196,7 @@ def crear_columna_editable(parent, etiqueta, max_val, vcmd):
         relief="flat",
         command=lambda: inc(entry, max_val)
     )
-    btn_up.pack(pady=(0, 4))
+    btn_up.pack(pady=(0, 6))
 
     entry = tk.Entry(
         col,
@@ -163,10 +208,10 @@ def crear_columna_editable(parent, etiqueta, max_val, vcmd):
         bd=1,
         relief="solid",
         validate="key",
-        validatecommand=vcmd  # máximo 2 dígitos numéricos
+        validatecommand=vcmd
     )
     entry.insert(0, "00")
-    entry.pack(pady=(0, 4))
+    entry.pack(pady=(0, 6))
 
     btn_down = tk.Button(
         col,
@@ -187,7 +232,7 @@ def crear_columna_editable(parent, etiqueta, max_val, vcmd):
         fg="#777777",
         font=("Segoe UI", 10)
     )
-    lbl_etq.pack(pady=(2, 0))
+    lbl_etq.pack(pady=(4, 0))
 
     return entry
 
@@ -203,12 +248,12 @@ lbl_msg = tk.Label(
     fg=TEXT,
     font=("Segoe UI", 11)
 )
-lbl_msg.pack(anchor="w", padx=25, pady=(10, 5))
+lbl_msg.pack(anchor="w", padx=30, pady=(5, 6))
 
 entry_mensaje = tk.Entry(frame, font=("Segoe UI", 11))
-entry_mensaje.pack(padx=25, pady=(0, 20), fill="x")
+entry_mensaje.pack(padx=30, pady=(0, 25), fill="x")
 
-# ----- Botón activar -----
+# ----- Botón Activar -----
 btn_activar = tk.Button(
     frame,
     text="Activar alarma",
@@ -216,24 +261,24 @@ btn_activar = tk.Button(
     fg="white",
     font=("Segoe UI", 12, "bold"),
     relief="flat",
-    padx=20,
+    padx=24,
     pady=6,
     command=activar_alarma
 )
-btn_activar.pack(pady=(0, 15))
+btn_activar.pack(pady=(0, 25))
 
 # ----- Display digital -----
 display_frame = tk.Frame(frame, bg=CARD)
-display_frame.pack(pady=(5, 5))
+display_frame.pack(pady=(0, 10))
 
 label_display_title = tk.Label(
     display_frame,
     text="Cuenta regresiva",
     bg=CARD,
     fg="#555555",
-    font=("Segoe UI", 10)
+    font=("Segoe UI", 11)
 )
-label_display_title.pack(pady=(0, 4))
+label_display_title.pack(pady=(0, 6))
 
 display_box = tk.Frame(
     display_frame,
@@ -246,12 +291,26 @@ display_box.pack()
 label_digital = tk.Label(
     display_box,
     text="--:--:--",
-    font=("Consolas", 30, "bold"),
+    font=("Consolas", 34, "bold"),
     bg="#111111",
     fg="#00ff88",
     width=10
 )
-label_digital.pack(padx=10, pady=8)
+label_digital.pack(padx=16, pady=10)
+
+# ----- Botón único Pausa/Reanudar debajo del display -----
+btn_pausa_play = tk.Button(
+    frame,
+    text="⏸️",
+    bg="#3949ab",
+    fg="white",
+    font=("Segoe UI", 16, "bold"),
+    relief="flat",
+    width=4,
+    state="disabled",
+    command=alternar_pausa_play
+)
+btn_pausa_play.pack(pady=(14, 16))
 
 # ----- Estado -----
 label_estado = tk.Label(
@@ -259,10 +318,11 @@ label_estado = tk.Label(
     text="Sin alarma activa",
     bg=CARD,
     fg="#555555",
-    font=("Segoe UI", 10)
+    font=("Segoe UI", 11)
 )
-label_estado.pack(pady=(10, 0))
+label_estado.pack(pady=(8, 0))
 
+# Relleno inferior para centrar mejor
 tk.Label(frame, bg=CARD).pack(expand=True, fill="both")
 
 root.mainloop()
