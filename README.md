@@ -1,1 +1,1 @@
-Alarma hecha con threading + Tinker para interfaz, practica de funcionamiento de Sistemas Operativos
+Alarma hecha con threading en Python + Tinker para interfaz, practica de funcionamiento de Sistemas Operativos
