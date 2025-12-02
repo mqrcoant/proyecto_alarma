@@ -259,15 +259,16 @@ Maneja la lógica de temporización:
 
 ### **Mecanismo de Comunicación Thread-Safe**
 
-Para que el hilo Timer pueda notificar al hilo principal sin violar las reglas de Tkinter:
+Para que el hilo Timer pueda notificar al hilo principal sin violar las reglas de Tkinter, la aplicación usa el siguiente código (de `alarma_gui.py`):
 
 ```python
 def callback_backend(msg):
     root.after(0, mostrar_mensaje, msg)
 ```
 
-- `root.after(0, función, args)`: Programa una función para ejecutarse en el hilo principal
-- Esto es thread-safe porque after() es un mecanismo de Tkinter diseñado para comunicación entre hilos
+- **`callback_backend()`**: Función llamada desde el hilo Timer (secundario)
+- **`root.after(0, función, args)`**: Programa `mostrar_mensaje()` para ejecutarse en el hilo principal
+- Esto es thread-safe porque `after()` es un mecanismo de Tkinter diseñado para comunicación entre hilos
 - El mensaje pasa del hilo Timer → queue interna de Tkinter → hilo principal
 
 ---
@@ -394,7 +395,7 @@ def alarma_no_bloqueante(segundos):
 | cuenta_regresiva() | alarma_gui.py | Principal | Actualizar display visual |
 | threading.Timer | backend_alarma.py | Secundario | Esperar tiempo real |
 | _disparar() | backend_alarma.py | Secundario | Ejecutar al expirar |
-| callback_backend() | alarma_gui.py | Secundario | Puente hacia hilo principal |
+| callback_backend() | alarma_gui.py | Secundario → Principal | Puente: llamado desde hilo Secundario, programa ejecución en Principal |
 | mostrar_mensaje() | alarma_gui.py | Principal | Actualizar GUI y mostrar alerta |
 
 ---
